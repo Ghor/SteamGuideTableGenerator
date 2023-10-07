@@ -171,7 +171,7 @@ string ConvertStringSheetToSteamMarkdown(StringSheet stringSheet, int headerRow,
 
         foreach (var row in allRows)
         {
-            using (outputTableBuilder.NewTag("tr"))
+            using (outputTableBuilder.NewTag("tr", true))
             {
                 ++tableRow;
                 for (int columnIndex = 0; columnIndex < row.Count; columnIndex++)
