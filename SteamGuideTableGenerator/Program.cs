@@ -27,7 +27,10 @@ try
     var headerColumnOption = new Option<int>(name: "--header-column", description: "The column to apply \"th\" tags to instead of \"td\". Use 0 for none.", getDefaultValue: () => 0);
     rootCommand.AddOption(headerColumnOption);
 
-    rootCommand.SetHandler((FileInfo inputFile, FileInfo? fileOut, bool autoOut, bool clipboardOut, int headerRow, int headerColumn) =>
+    var wrapLimitOption = new Option<int>(name: "--wrap-limit", description: "The maximum number of characters a single line can have before being forced to the next line. This is useful for tables whose contents are too wide.", getDefaultValue: () => 0);
+    rootCommand.AddOption(wrapLimitOption);
+
+    rootCommand.SetHandler((FileInfo inputFile, FileInfo? fileOut, bool autoOut, bool clipboardOut, int headerRow, int headerColumn, int wrapLimit) =>
     {
         StringSheet inputSheet;
         using (var streamReader = inputFile.OpenText())
@@ -60,7 +63,7 @@ try
         }
 
         // Generate results
-        string resultContents = ConvertStringSheetToSteamMarkdown(inputSheet, headerRow, headerColumn);
+        string resultContents = ConvertStringSheetToSteamMarkdown(inputSheet, headerRow, headerColumn, wrapLimit);
 
         if (fileOut != null)
         {
@@ -83,7 +86,7 @@ try
             TextCopy.ClipboardService.SetText(resultContents);
         }
 
-    }, inputFileArg, fileOutOption, autoOutOption, clipboardOutOption, headerRowOption, headerColumnOption);
+    }, inputFileArg, fileOutOption, autoOutOption, clipboardOutOption, headerRowOption, headerColumnOption, wrapLimitOption);
 
     Exception? cmdException = null;
     var parser = new CommandLineBuilder(rootCommand)
@@ -155,7 +158,37 @@ void PromptToQuit()
     Environment.Exit(1);
 }
 
-string ConvertStringSheetToSteamMarkdown(StringSheet stringSheet, int headerRow, int headerColumn)
+string WrapString(string str, int wrapLimit)
+{
+    if ((wrapLimit <= 0) || (str.Length <= wrapLimit))
+    {
+        return str;
+    }
+
+    var strSpan = str.AsSpan();
+    int lineCount = ((strSpan.Length + (wrapLimit - 1)) / wrapLimit);
+    StringBuilder stringBulder = new(str.Length + (lineCount * Environment.NewLine.Length));
+
+    for (int i = 0; i < lineCount; ++i)
+    {
+        int substringStart = i * wrapLimit;
+        int substringEnd = (i + 1) * wrapLimit;
+        if (substringEnd > strSpan.Length)
+        {
+            substringEnd = strSpan.Length;
+        }
+        int substringLength = substringEnd - substringStart;
+        stringBulder.Append(strSpan.Slice(substringStart, substringLength));
+        if (i < lineCount - 1)
+        {
+            stringBulder.Append(Environment.NewLine);
+        }
+    }
+
+    return stringBulder.ToString();
+}
+
+string ConvertStringSheetToSteamMarkdown(StringSheet stringSheet, int headerRow, int headerColumn, int wrapLimit)
 {
     StringBuilder outputContents = new();
     SteamMarkdownBuilder outputTableBuilder = new(outputContents);
@@ -177,10 +210,12 @@ string ConvertStringSheetToSteamMarkdown(StringSheet stringSheet, int headerRow,
                 for (int columnIndex = 0; columnIndex < row.Count; columnIndex++)
                 {
                     int tableColumn = columnIndex + 1;
-                    bool isHeader = ((tableRow == headerRow) || (columnIndex == headerColumn));
+                    bool isHeader = ((tableRow == headerRow) || (tableColumn == headerColumn));
 
-                    string? value = row[columnIndex];
-                    using (outputTableBuilder.NewTag(isHeader ? "th" : "td", false)) { outputTableBuilder.Append(value); }
+                    string value = row[columnIndex] ?? string.Empty;
+
+
+                    using (outputTableBuilder.NewTag(isHeader ? "th" : "td", false)) { outputTableBuilder.Append(WrapString(value, wrapLimit)); }
                 }
             }
         }
