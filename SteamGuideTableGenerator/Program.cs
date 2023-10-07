@@ -8,10 +8,11 @@ try
 {
     var rootCommand = new RootCommand("Converts a .csv file to a Steam Community markdown table.");
 
-    var inputFileArg = new Argument<FileInfo>();
+    var inputFileArg = new Argument<FileInfo>().ExistingOnly();
+    inputFileArg.Arity = ArgumentArity.ExactlyOne;
     rootCommand.AddArgument(inputFileArg);
 
-    var fileOutOption = new Option<FileInfo?>(name: "--file-out", description: "Save the output to a specified file.");
+    var fileOutOption = new Option<FileInfo?>(name: "--file-out", description: "Save the output to a specified file.").LegalFilePathsOnly();
     rootCommand.AddOption(fileOutOption);
 
     var autoOutOption = new Option<bool>(name: "--auto-out", description: "Save the output to a file with the same name and directory as the input file, except with the extension \".steam_md.txt\".");
@@ -20,10 +21,10 @@ try
     var clipboardOutOption = new Option<bool>(name: "--clipboard-out", description: "Copy the output to the clipboard.");
     rootCommand.AddOption(clipboardOutOption);
 
-    var headerRowOption = new Option<int>(name: "--header-row", description: "The row to apply \"th\" tags to instead of \"td\". Default is 1. Use 0 for none.", getDefaultValue: () => 1);
+    var headerRowOption = new Option<int>(name: "--header-row", description: "The row to apply \"th\" tags to instead of \"td\". Use 0 for none.", getDefaultValue: () => 1);
     rootCommand.AddOption(headerRowOption);
 
-    var headerColumnOption = new Option<int>(name: "--header-column", description: "The column to apply \"th\" tags to instead of \"td\". Default is 0. Use 0 for none.", getDefaultValue: () => 0);
+    var headerColumnOption = new Option<int>(name: "--header-column", description: "The column to apply \"th\" tags to instead of \"td\". Use 0 for none.", getDefaultValue: () => 0);
     rootCommand.AddOption(headerColumnOption);
 
     rootCommand.SetHandler((FileInfo inputFile, FileInfo? fileOut, bool autoOut, bool clipboardOut, int headerRow, int headerColumn) =>
@@ -86,16 +87,25 @@ try
 
     Exception? cmdException = null;
     var parser = new CommandLineBuilder(rootCommand)
+        .UseDefaults()
         .UseExceptionHandler((e, invocationContext) =>
         {
             cmdException = e;
         })
         .Build();
-    parser.Invoke(args);
 
+    var parseResult = parser.Parse(args);
+    int cmdResult = parseResult.Invoke();
+
+    // Display any errors that occurred during invocation.
     if (cmdException != null)
     {
-        LogExceptionAndPromptToQuit(cmdException);
+        LogException(cmdException);
+    }
+
+    if ((cmdResult != 0) || (cmdException != null))
+    {
+        PromptToQuit();
     }
     else
     {
@@ -104,29 +114,42 @@ try
 }
 catch (Exception e)
 {
-    LogExceptionAndPromptToQuit(e);
+    LogException(e);
+    PromptToQuit();
 }
 
-void LogExceptionAndPromptToQuit(Exception e)
+void LogException(Exception e)
 {
     string errorMsg;
-
     switch (e)
     {
         // For exceptions we anticipate the user to trip due to misuse, just show the simplified message.
-        case InvalidDataException invalidDataException:
+        case CsvHelper.BadDataException:
+            {
+                errorMsg = "Invalid or malformed csv file.";
+            }
+            break;
+        case InvalidDataException:
             {
                 errorMsg = e.Message;
-            } break;
+            }
+            break;
         // For all other exceptions, give a stack trace.
         default:
             {
                 errorMsg = e.ToString();
-            } break;
+            }
+            break;
     }
 
     Console.Write("Error: ");
     Console.WriteLine(errorMsg);
+}
+
+
+// Pauses until user input so they have enough time to see the error message.
+void PromptToQuit()
+{
     Console.WriteLine("Press any key to continue...");
     Console.ReadKey();
     Environment.Exit(1);
